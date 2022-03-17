@@ -1,0 +1,15 @@
+[package]
+name = "powproxy" # the name of the package
+version = "0.0.1"    # the current version, obeying semver
+authors = []
+rust-version = "1.56.1"
+edition = "2021"
+
+[dependencies]
+hyper = { version = "0.14", features = ["full", "client"] }
+tokio = { version = "1.17.0", features = ["full"] }
+cookie = { version = "0.16", features = ["percent-encode"] }
+hex = "0.4.3"
+sha2 = "0.10.2"
+bitvec = "1.0.0"
+ring = "0.16.20"
