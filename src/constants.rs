@@ -6,46 +6,45 @@ pub static CHALLENGE_PAGE: &'static str = "
 <meta charset=utf-8>
 <script>
     const getCookie = name =>
-        document.cookie.split('; ').find(c => c.startsWith(name + '=')).split('=').pop();
+        document.cookie.split('; ').find(c => c.startsWith(name)).split('=').pop();
+    const setCookie = (nameVal) =>
+        document.cookie = nameVal + '; SameSite=Strict; Path=/; Max-Age=300';
 
-    const hexToNums = hexString => {
-        let bytes = []
+    const hexToNums = (hexString, ...nums) => {
         for (let i = 0; i < hexString.length; i += 2) {
-            bytes.push(parseInt(hexString.slice(i, i + 2), 16))
+            nums.push(parseInt(hexString.slice(i, i + 2), 16));
         }
-        return bytes
-    }
+        return new Uint8Array(nums);
+    };
 
-    const challenge = getCookie('pow_chal');
+    const challenge = getCookie('pow_chal=');
 
-    async function do_challenge() {
-        const bufView = new DataView(new Uint8Array([0, 0, 0, 0, ...hexToNums(challenge)]).buffer);
-        let digested;
+    ;(async () => {
+        const bufView = new DataView(hexToNums(challenge, 0, 0, 0, 0).buffer);
 
         console.time('pow time');
         for (;;) {
-            digested = new DataView(await crypto.subtle.digest('SHA-256', bufView.buffer));
+            const hash = new DataView(await crypto.subtle.digest('SHA-256', bufView.buffer));
 
             if (
-                digested.getUint8(0, false) === 0
-                && digested.getUint8(1, false) === 0
+                hash.getUint8(0) === 0
+                && hash.getUint8(1) === 0
             ) {
                 break;
             }
 
-            bufView.setUint32(0, bufView.getUint32(0, false) + 1, false)
+            bufView.setUint32(0, bufView.getUint32(0) + 1);
         }
         console.timeEnd('pow time');
-        return bufView.getUint32(0, false);
-    }
-
-    do_challenge().then(
-        magic => {
-            document.cookie = `pow_magic=${magic}; SameSite=Strict; Path=/; Max-Age=300`;
-            document.cookie = `pow_resp=${challenge}; SameSite=Strict; Path=/; Max-Age=300`;
+        return bufView.getUint32(0);
+    })()
+        .then(magic => {
+            setCookie('pow_magic=' + magic);
+            setCookie('pow_resp=' + challenge);
             location.reload();
-        },
-        e => console.error(e)
-    );
+        })
+        .catch(error => {
+            console.error(error);
+        });
 </script>
 ";
