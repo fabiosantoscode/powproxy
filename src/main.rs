@@ -12,8 +12,9 @@ mod constants;
 mod pow;
 mod gatekeep_request;
 mod encryption;
+mod config;
+
 use crate::gatekeep_request::{gatekeep_request};
-use crate::encryption::{prepare_encryption};
 
 use std::convert::{Infallible};
 use std::net::SocketAddr;
@@ -26,16 +27,18 @@ use siphasher::sip::SipHasher;
 
 #[tokio::main]
 async fn main() {
-    prepare_encryption();
+    let config: std::sync::Arc<config::Config> = Default::default();
 
     // A `Service` is needed for every connection, so this
     // creates one from our `gatekeep_request` function.
     let make_svc = make_service_fn(|socket: &AddrStream| {
+        let config_clone = config.clone();
+
         // service_fn converts our function into a `Service`
         let remote_addr = hash_remote_addr(socket);
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
-                gatekeep_request(req, remote_addr)
+                gatekeep_request(req, remote_addr, config_clone.clone())
             }))
         }
     });

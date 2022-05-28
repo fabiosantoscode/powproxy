@@ -6,19 +6,20 @@ use hyper::{Body, Request, Response};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[allow(unused)]
-use crate::encryption::{hmac_sign, hmac_verify, prepare_encryption};
+use crate::encryption::{hmac_sign, hmac_verify};
 use crate::forward_request::{forward_request};
 use crate::pow::{validate_work};
 use crate::constants;
+use crate::config::Config;
 
-pub async fn gatekeep_request(req: Request<Body>, remote_addr_hash: u64) -> Result<Response<Body>, hyper::http::Error> {
+pub async fn gatekeep_request(req: Request<Body>, remote_addr_hash: u64, config: std::sync::Arc<Config>) -> Result<Response<Body>, hyper::http::Error> {
     let can_pass = req.headers().get("cookie")
         .map(|h| h.to_str().unwrap_or_else(|_| ""))
-        .and_then(|cookie| validate_cookie(cookie, remote_addr_hash));
+        .and_then(|cookie| validate_cookie(cookie, remote_addr_hash, &config));
 
     let res = match can_pass {
         Some(()) => forward_request(req).await,
-        None => get_challenge_page(remote_addr_hash)
+        None => get_challenge_page(remote_addr_hash, &config)
     };
 
     match res {
@@ -27,15 +28,15 @@ pub async fn gatekeep_request(req: Request<Body>, remote_addr_hash: u64) -> Resu
     }
 }
 
-fn serialize_challenge(expiry: SystemTime, remote_addr_hash: u64) -> Option<String> {
+fn serialize_challenge(expiry: SystemTime, remote_addr_hash: u64, config: &Config) -> Option<String> {
     let epoch_seconds = expiry.duration_since(UNIX_EPOCH).ok()?.as_secs();
     let message = vec![epoch_seconds.to_be_bytes(), remote_addr_hash.to_be_bytes()].concat();
-    Some(hex::encode(hmac_sign(&message)))
+    Some(hex::encode(hmac_sign(&message, config)))
 }
 
-fn deserialize_challenge(hex: &str) -> Option<(SystemTime, u64)> {
+fn deserialize_challenge(hex: &str, config: &Config) -> Option<(SystemTime, u64)> {
     let bytes = hex::decode(hex).ok()?;
-    let bytes = hmac_verify(&bytes)?;
+    let bytes = hmac_verify(&bytes, config)?;
     let time_part = <[u8; 8]>::try_from(&bytes[0..8]).ok()?;
     let remote_addr_part = <[u8; 8]>::try_from(&bytes[8..]).ok()?;
 
@@ -51,9 +52,9 @@ fn round_time() -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(seconds - more_than_30)
 }
 
-fn get_challenge_page(remote_addr_hash: u64) -> Option<Response<Body>> {
-    let expiry = round_time() + Duration::from_secs(constants::EXPIRY_SECONDS);
-    let challenge_str = serialize_challenge(expiry, remote_addr_hash)?;
+fn get_challenge_page(remote_addr_hash: u64, config: &Config) -> Option<Response<Body>> {
+    let expiry = round_time() + Duration::from_secs(config.expiry_seconds);
+    let challenge_str = serialize_challenge(expiry, remote_addr_hash, config)?;
 
     Response::builder()
         .header("set-cookie", format!("{}{}; Path=/; Max-Age=300; SameSite=Strict", "pow_chal=", challenge_str))
@@ -61,16 +62,16 @@ fn get_challenge_page(remote_addr_hash: u64) -> Option<Response<Body>> {
         .ok()
 }
 
-fn validate_cookie(cookies: &str, remote_addr_hash: u64) -> Option<()> {
+fn validate_cookie(cookies: &str, remote_addr_hash: u64, config: &Config) -> Option<()> {
     let chal = get_cookie(cookies, "pow_resp=")?;
     let pow_magic = get_cookie(cookies, "pow_magic=")?.parse::<u32>().ok()?;
 
-    let (given_expiry, given_remote_addr) = deserialize_challenge(&chal)?;
+    let (given_expiry, given_remote_addr) = deserialize_challenge(&chal, config)?;
 
     if
         given_remote_addr == remote_addr_hash
         && given_expiry > SystemTime::now()
-        && validate_work(&hex::decode(&chal).ok()?, pow_magic, constants::DIFFICULTY_BITS)
+        && validate_work(&hex::decode(&chal).ok()?, pow_magic, config.difficulty_bytes)
     {
         Some(())
     } else {
@@ -107,23 +108,22 @@ fn test_get_cookie() {
 
 #[test]
 fn test_deserialize_challenge() {
-    prepare_encryption();
-
     let instant = round_time();
+    let config: Config = Default::default();
 
-    let serialized = serialize_challenge(instant, 2).unwrap();
-    assert_eq!(deserialize_challenge(&serialized), Some((instant, 2)));
+    let serialized = serialize_challenge(instant, 2, &config).unwrap();
+    assert_eq!(deserialize_challenge(&serialized, &config), Some((instant, 2)));
 }
 
 #[test]
 fn test_get_challenge_page() {
-    prepare_encryption();
+    let config: Config = Default::default();
 
-    fn get_page() -> String {
-        let page = get_challenge_page(10).unwrap();
+    let get_page = || {
+        let page = get_challenge_page(10, &config).unwrap();
         let page = page.headers().get("set-cookie").unwrap();
         String::from(page.to_str().unwrap())
-    }
+    };
 
     assert_eq!(get_page().len() > 60, true);
 

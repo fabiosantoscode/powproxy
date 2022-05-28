@@ -1,6 +1,4 @@
 /** How many zeroes we expect on the hash coming from the client */
-pub static DIFFICULTY_BITS: usize = 16;
-pub static EXPIRY_SECONDS: u64 = 300;
 pub static CHALLENGE_PAGE: &'static str = "
 <!doctype html>
 <meta charset=utf-8>

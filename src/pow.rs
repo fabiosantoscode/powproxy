@@ -4,14 +4,14 @@ use sha2::{Sha256, Digest};
 /**
  * Proof of work stuff
  */
-pub fn validate_work(challenge: &[u8], magic: u32, difficulty: usize) -> bool {
+pub fn validate_work(challenge: &[u8], magic: u32, difficulty_bytes: usize) -> bool {
     let mut hasher = Sha256::new();
 
     hasher.update([&magic.to_be_bytes(), challenge].concat());
 
     let hash = hasher.finalize();
 
-    return has_leading_zeroes(hash.as_bits::<Lsb0>(), difficulty);
+    return has_leading_zeroes(hash.as_bits::<Lsb0>(), difficulty_bytes * 8);
 }
 
 fn has_leading_zeroes(bits: &BitSlice<u8>, zero_count: usize) -> bool {
@@ -37,7 +37,7 @@ fn test_work_real() {
         validate_work(
             &hex::decode("31643765326531336538313264666462326532346536363934653766633534666462623562646334396363643335356631306130353130613035303139346436663963313339336565323162383837353663356366363366").unwrap(),
             40768,
-            16
+            2
         ),
         true
     )
