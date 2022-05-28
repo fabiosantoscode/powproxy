@@ -13,4 +13,6 @@ The purpose is to deter DOS attacks by making them computationally expensive.
 ## Roadmap
 
  - Only demand proof-of-work if enough requests per second are coming in
+ - Dynamically adjust difficulty according to how many requests did go through
  - Research if it's possible to cheaply rate-limit requests after they're through the proxy
+ - Actually compute something useful

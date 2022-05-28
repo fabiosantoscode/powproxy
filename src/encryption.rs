@@ -11,16 +11,16 @@ static HMAC_LENGTH: usize = 32;
 
 pub fn hmac_sign(msg: &[u8]) -> Vec<u8> {
     let key = get_hmac_key();
+
     vec![hmac::sign(&key, msg).as_ref(), msg].concat()
 }
 
 pub fn hmac_verify(signed_msg: &[u8]) -> Option<Vec<u8>> {
     let key = get_hmac_key();
-
     let tag = &signed_msg[0..HMAC_LENGTH];
     let msg = &signed_msg[HMAC_LENGTH..];
-    hmac::verify(&key, msg, tag).ok()?;
 
+    hmac::verify(&key, msg, tag).ok()?;
     Some(Vec::from(msg))
 }
 

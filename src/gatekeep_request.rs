@@ -17,8 +17,8 @@ pub async fn gatekeep_request(req: Request<Body>, remote_addr_hash: u64) -> Resu
         .and_then(|cookie| validate_cookie(cookie, remote_addr_hash));
 
     let res = match can_pass {
-        Some(_) => forward_request(req).await,
-        _ => get_challenge_page(remote_addr_hash)
+        Some(()) => forward_request(req).await,
+        None => get_challenge_page(remote_addr_hash)
     };
 
     match res {
@@ -78,10 +78,31 @@ fn validate_cookie(cookies: &str, remote_addr_hash: u64) -> Option<()> {
     }
 }
 
-fn get_cookie(cookies: &str, cookie_eq: &str) -> Option<String> {
-    let cookie = cookies.split("; ").into_iter().find(|cookie| &cookie[0..cookie_eq.len()] == cookie_eq)?;
+fn get_cookie(cookie_header: &str, cookie_eq: &str) -> Option<String> {
+    let mut split_iter = cookie_header.split("; ").into_iter();
+
+    let cookie = split_iter.find(|cookie| {
+        if cookie.len() > cookie_eq.len() {
+            &cookie[0..cookie_eq.len()] == cookie_eq
+        } else {
+            false
+        }
+    })?;
+
     let cookie = Cookie::parse_encoded(cookie).ok()?;
     Some(cookie.value().into())
+}
+
+#[test]
+fn test_get_cookie() {
+    let cookie = get_cookie("hello=world; HttpOnly", "hello=");
+    assert_eq!(cookie, Some(String::from("world")));
+
+    let cookie = get_cookie("other=cookie; hello=world; HttpOnly", "hello=");
+    assert_eq!(cookie, Some(String::from("world")));
+
+    let missing = get_cookie("hello=world; other=cookie", "missing_cookie=");
+    assert_eq!(missing, None);
 }
 
 #[test]
@@ -89,7 +110,26 @@ fn test_deserialize_challenge() {
     prepare_encryption();
 
     let instant = round_time();
-    
+
     let serialized = serialize_challenge(instant, 2).unwrap();
     assert_eq!(deserialize_challenge(&serialized), Some((instant, 2)));
+}
+
+#[test]
+fn test_get_challenge_page() {
+    prepare_encryption();
+
+    fn get_page() -> String {
+        let page = get_challenge_page(10).unwrap();
+        let page = page.headers().get("set-cookie").unwrap();
+        String::from(page.to_str().unwrap())
+    }
+
+    assert_eq!(get_page().len() > 60, true);
+
+    assert_eq!(
+        // Just in case we go over a timestamp slice while comparing
+        get_page() == get_page() || get_page() == get_page(),
+        true
+    );
 }

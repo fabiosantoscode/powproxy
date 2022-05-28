@@ -5,6 +5,7 @@ extern crate ring;
 extern crate hex;
 extern crate sha2;
 extern crate bitvec;
+extern crate siphasher;
 
 mod forward_request;
 mod constants;
@@ -14,21 +15,18 @@ mod encryption;
 use crate::gatekeep_request::{gatekeep_request};
 use crate::encryption::{prepare_encryption};
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::convert::{Infallible};
 use std::net::SocketAddr;
+use std::hash::{Hasher,Hash};
 
 use hyper::{Server};
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
+use siphasher::sip::SipHasher;
 
 #[tokio::main]
 async fn main() {
     prepare_encryption();
-
-    // We'll bind to 0.0.0.0:3000
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
 
     // A `Service` is needed for every connection, so this
     // creates one from our `gatekeep_request` function.
@@ -36,10 +34,14 @@ async fn main() {
         // service_fn converts our function into a `Service`
         let remote_addr = hash_remote_addr(socket);
         async move {
-            Ok::<_, Infallible>(service_fn(move |req| gatekeep_request(req, remote_addr)))
+            Ok::<_, Infallible>(service_fn(move |req| {
+                gatekeep_request(req, remote_addr)
+            }))
         }
     });
 
+    // We'll bind to 0.0.0.0:3000
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     let server = Server::bind(&addr).serve(make_svc);
 
     // Run this server for... forever!
@@ -49,7 +51,7 @@ async fn main() {
 }
 
 fn hash_remote_addr(socket: &AddrStream) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = SipHasher::new();
     socket.remote_addr().ip().hash(&mut hasher);
     hasher.finish()
 }
