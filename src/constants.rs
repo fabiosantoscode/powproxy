@@ -1,4 +1,5 @@
-/** How many zeroes we expect on the hash coming from the client */
+pub const MAX_COOKIE_HEADER_SIZE: usize = 65_536;
+
 pub static CHALLENGE_PAGE: &'static str = "
 <!doctype html>
 <meta charset=utf-8>
@@ -32,7 +33,7 @@ pub static CHALLENGE_PAGE: &'static str = "
     console.timeEnd('pow time');
 
     setCookie('pow_magic=' + bufView.getUint32(0));
-    setCookie('pow_resp=' + challenge);
+    setCookie('pow_cchal=' + challenge);
     location.reload();
 })().catch(error => {
     console.error(error);

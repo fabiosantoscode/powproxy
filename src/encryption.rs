@@ -1,5 +1,5 @@
-use ring::{hmac, rand::{SystemRandom}};
 use crate::config::Config;
+use ring::{hmac, rand::SystemRandom};
 
 static HMAC_ALGO: hmac::Algorithm = hmac::HMAC_SHA256;
 
@@ -40,5 +40,8 @@ fn test_can_sign() {
     hmac_verify(&signed, &config).unwrap();
 
     // Ensure signature is stable
-    assert_eq!(hmac_sign(msg.as_bytes(), &config), hmac_sign(msg.as_bytes(), &config));
+    assert_eq!(
+        hmac_sign(msg.as_bytes(), &config),
+        hmac_sign(msg.as_bytes(), &config)
+    );
 }

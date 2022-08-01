@@ -1,24 +1,19 @@
 use bitvec::prelude::*;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /**
  * Proof of work stuff
  */
 pub fn validate_work(challenge: &[u8], magic: u32, difficulty_bytes: usize) -> bool {
     let mut hasher = Sha256::new();
-
     hasher.update([&magic.to_be_bytes(), challenge].concat());
-
     let hash = hasher.finalize();
 
     return has_leading_zeroes(hash.as_bits::<Lsb0>(), difficulty_bytes * 8);
 }
 
 fn has_leading_zeroes(bits: &BitSlice<u8>, zero_count: usize) -> bool {
-    bits
-        .iter()
-        .take(zero_count)
-        .all(|bit| bit == false)
+    bits.iter().take(zero_count).all(|bit| bit == false)
 }
 
 #[test]
@@ -51,16 +46,31 @@ fn test_hex(inp: &str) -> Vec<u8> {
 #[test]
 fn test_leading_zeroes() {
     // sanity check
+    assert_eq!(test_hex("02"), [2]);
     assert_eq!(
-        test_hex("02"),
-        [2]
+        has_leading_zeroes(test_hex("ff").as_bits::<Lsb0>(), 0),
+        true
     );
-    assert_eq!(has_leading_zeroes(test_hex("ff").as_bits::<Lsb0>(), 0), true);
-    assert_eq!(has_leading_zeroes(test_hex("00").as_bits::<Lsb0>(), 0), true);
+    assert_eq!(
+        has_leading_zeroes(test_hex("00").as_bits::<Lsb0>(), 0),
+        true
+    );
 
-    assert_eq!(has_leading_zeroes(test_hex("00ff").as_bits::<Lsb0>(), 8), true);
-    assert_eq!(has_leading_zeroes(test_hex("00ff").as_bits::<Lsb0>(), 9), false);
+    assert_eq!(
+        has_leading_zeroes(test_hex("00ff").as_bits::<Lsb0>(), 8),
+        true
+    );
+    assert_eq!(
+        has_leading_zeroes(test_hex("00ff").as_bits::<Lsb0>(), 9),
+        false
+    );
 
-    assert_eq!(has_leading_zeroes(test_hex("0000ff").as_bits::<Lsb0>(), 16), true);
-    assert_eq!(has_leading_zeroes(test_hex("0000ff").as_bits::<Lsb0>(), 17), false);
+    assert_eq!(
+        has_leading_zeroes(test_hex("0000ff").as_bits::<Lsb0>(), 16),
+        true
+    );
+    assert_eq!(
+        has_leading_zeroes(test_hex("0000ff").as_bits::<Lsb0>(), 17),
+        false
+    );
 }

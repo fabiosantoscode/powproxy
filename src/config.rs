@@ -1,5 +1,5 @@
-use ring::hmac::Key;
 use crate::encryption::hmac_gen_key;
+use ring::hmac::Key;
 
 #[derive(Clone)]
 pub struct Config {

@@ -1,135 +1,94 @@
-use std::time::Duration;
-use std::convert::TryFrom;
+use std::sync::Arc;
 
-use cookie::Cookie;
-use hyper::{Body, Request, Response};
-use std::time::{SystemTime, UNIX_EPOCH};
+use hyper::http::Uri;
+use hyper::{Body, Client, Request, Response};
 
-#[allow(unused)]
-use crate::encryption::{hmac_sign, hmac_verify};
-use crate::forward_request::{forward_request};
-use crate::pow::{validate_work};
-use crate::constants;
 use crate::config::Config;
+use crate::constants;
+use crate::cookie_verify::{generate_challenge_cookie, parse_and_verify_cookie};
 
-pub async fn gatekeep_request(req: Request<Body>, remote_addr_hash: u64, config: std::sync::Arc<Config>) -> Result<Response<Body>, hyper::http::Error> {
-    let can_pass = req.headers().get("cookie")
-        .map(|h| h.to_str().unwrap_or_else(|_| ""))
-        .and_then(|cookie| validate_cookie(cookie, remote_addr_hash, &config));
+type HttpResult = Result<Response<Body>, hyper::http::Error>;
+
+pub async fn gatekeep_request(req: Request<Body>, ip_hash: u64, config: Arc<Config>) -> HttpResult {
+    let can_pass = req.headers().get("cookie").and_then(|header| {
+        if header.len() > constants::MAX_COOKIE_HEADER_SIZE {
+            None
+        } else {
+            parse_and_verify_cookie(header.as_bytes(), ip_hash, &config)
+        }
+    });
 
     let res = match can_pass {
-        Some(()) => forward_request(req).await,
-        None => get_challenge_page(remote_addr_hash, &config)
+        Some(true) => forward_request(req).await,
+        _ => get_challenge_page(ip_hash, &config),
     };
 
     match res {
         Some(response) => Ok(response),
-        _ => Response::builder().status(503).body("Error!\n".into())
+        _ => Response::builder().status(503).body("Error!\n".into()),
     }
 }
 
-fn serialize_challenge(expiry: SystemTime, remote_addr_hash: u64, config: &Config) -> Option<String> {
-    let epoch_seconds = expiry.duration_since(UNIX_EPOCH).ok()?.as_secs();
-    let message = vec![epoch_seconds.to_be_bytes(), remote_addr_hash.to_be_bytes()].concat();
-    Some(hex::encode(hmac_sign(&message, config)))
+pub async fn forward_request(mut req: Request<Body>) -> Option<Response<Body>> {
+    req.headers_mut().remove("host");
+    *req.uri_mut() = get_upstream_url(&req.uri())?;
+
+    Client::new().request(req).await.ok()
 }
 
-fn deserialize_challenge(hex: &str, config: &Config) -> Option<(SystemTime, u64)> {
-    let bytes = hex::decode(hex).ok()?;
-    let bytes = hmac_verify(&bytes, config)?;
-    let time_part = <[u8; 8]>::try_from(&bytes[0..8]).ok()?;
-    let remote_addr_part = <[u8; 8]>::try_from(&bytes[8..]).ok()?;
+fn get_upstream_url(old_uri: &Uri) -> Option<Uri> {
+    let old_path = old_uri.path_and_query()?.as_str();
 
-    let time = UNIX_EPOCH + Duration::from_secs(u64::from_be_bytes(time_part));
-
-    Some((time, u64::from_be_bytes(remote_addr_part)))
+    make_url("127.0.0.1:8080", old_path)
 }
 
-/** Round the time such that there's only one challenge every 30 seconds */
-fn round_time() -> SystemTime {
-    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let more_than_30 = seconds % 30;
-    UNIX_EPOCH + Duration::from_secs(seconds - more_than_30)
-}
-
-fn get_challenge_page(remote_addr_hash: u64, config: &Config) -> Option<Response<Body>> {
-    let expiry = round_time() + Duration::from_secs(config.expiry_seconds);
-    let challenge_str = serialize_challenge(expiry, remote_addr_hash, config)?;
-
-    Response::builder()
-        .header("set-cookie", format!("{}{}; Path=/; Max-Age=300; SameSite=Strict", "pow_chal=", challenge_str))
-        .body(constants::CHALLENGE_PAGE.into())
+fn make_url(authority: &str, path_and_query: &str) -> Option<Uri> {
+    Uri::builder()
+        .scheme("http")
+        .authority(authority)
+        .path_and_query(path_and_query)
+        .build()
         .ok()
 }
 
-fn validate_cookie(cookies: &str, remote_addr_hash: u64, config: &Config) -> Option<()> {
-    let chal = get_cookie(cookies, "pow_resp=")?;
-    let pow_magic = get_cookie(cookies, "pow_magic=")?.parse::<u32>().ok()?;
+fn get_challenge_page(remote_addr_hash: u64, config: &Config) -> Option<Response<Body>> {
+    let challenge_str = generate_challenge_cookie(remote_addr_hash, config)?;
 
-    let (given_expiry, given_remote_addr) = deserialize_challenge(&chal, config)?;
-
-    if
-        given_remote_addr == remote_addr_hash
-        && given_expiry > SystemTime::now()
-        && validate_work(&hex::decode(&chal).ok()?, pow_magic, config.difficulty_bytes)
-    {
-        Some(())
-    } else {
-        None
-    }
-}
-
-fn get_cookie(cookie_header: &str, cookie_eq: &str) -> Option<String> {
-    let mut split_iter = cookie_header.split("; ").into_iter();
-
-    let cookie = split_iter.find(|cookie| {
-        if cookie.len() > cookie_eq.len() {
-            &cookie[0..cookie_eq.len()] == cookie_eq
-        } else {
-            false
-        }
-    })?;
-
-    let cookie = Cookie::parse_encoded(cookie).ok()?;
-    Some(cookie.value().into())
-}
-
-#[test]
-fn test_get_cookie() {
-    let cookie = get_cookie("hello=world; HttpOnly", "hello=");
-    assert_eq!(cookie, Some(String::from("world")));
-
-    let cookie = get_cookie("other=cookie; hello=world; HttpOnly", "hello=");
-    assert_eq!(cookie, Some(String::from("world")));
-
-    let missing = get_cookie("hello=world; other=cookie", "missing_cookie=");
-    assert_eq!(missing, None);
-}
-
-#[test]
-fn test_deserialize_challenge() {
-    let instant = round_time();
-    let config: Config = Default::default();
-
-    let serialized = serialize_challenge(instant, 2, &config).unwrap();
-    assert_eq!(deserialize_challenge(&serialized, &config), Some((instant, 2)));
+    Response::builder()
+        .header(
+            "set-cookie",
+            format!(
+                "pow_chal={}; Path=/; Max-Age={}; SameSite=Strict",
+                challenge_str, config.expiry_seconds,
+            ),
+        )
+        .body(constants::CHALLENGE_PAGE.into())
+        .ok()
 }
 
 #[test]
 fn test_get_challenge_page() {
     let config: Config = Default::default();
 
-    let get_page = || {
+    let get_page_cookie = || {
         let page = get_challenge_page(10, &config).unwrap();
         let page = page.headers().get("set-cookie").unwrap();
         String::from(page.to_str().unwrap())
     };
 
-    assert_eq!(get_page().len() > 60, true);
+    assert_eq!(get_page_cookie().len() > 60, true);
 
     assert_eq!(
         // Just in case we go over a timestamp slice while comparing
-        get_page() == get_page() || get_page() == get_page(),
+        get_page_cookie() == get_page_cookie() || get_page_cookie() == get_page_cookie(),
         true
+    );
+}
+
+#[test]
+fn test_change_url() {
+    assert_eq!(
+        get_upstream_url(&make_url("example.com", "path?query").unwrap()),
+        make_url("127.0.0.1:8080", "path?query")
     );
 }

@@ -8,9 +8,9 @@ edition = "2021"
 [dependencies]
 hyper = { version = "0.14", features = ["full", "client"] }
 tokio = { version = "1.17.0", features = ["full"] }
-cookie = { version = "0.16", features = ["percent-encode"] }
 hex = "0.4.3"
 sha2 = "0.10.2"
 bitvec = "1.0.0"
 ring = "0.16.20"
 siphasher = "0.3"
+atoi = "1.0.0"

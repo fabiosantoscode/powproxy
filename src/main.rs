@@ -1,29 +1,31 @@
-extern crate tokio;
-extern crate hyper;
-extern crate cookie;
-extern crate ring;
-extern crate hex;
-extern crate sha2;
+extern crate atoi;
 extern crate bitvec;
+extern crate hex;
+extern crate hyper;
+extern crate ring;
+extern crate sha2;
 extern crate siphasher;
+extern crate tokio;
 
-mod forward_request;
-mod constants;
-mod pow;
-mod gatekeep_request;
-mod encryption;
 mod config;
+mod constants;
+mod cookie_parse;
+mod cookie_verify;
+mod encryption;
+mod gatekeep_request;
+mod pow;
+mod util;
 
-use crate::gatekeep_request::{gatekeep_request};
+use crate::gatekeep_request::gatekeep_request;
 
-use std::convert::{Infallible};
+use std::collections::hash_map::DefaultHasher;
+use std::convert::Infallible;
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
-use std::hash::{Hasher,Hash};
 
-use hyper::{Server};
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
-use siphasher::sip::SipHasher;
+use hyper::Server;
 
 #[tokio::main]
 async fn main() {
@@ -54,7 +56,7 @@ async fn main() {
 }
 
 fn hash_remote_addr(socket: &AddrStream) -> u64 {
-    let mut hasher = SipHasher::new();
+    let mut hasher = DefaultHasher::new();
     socket.remote_addr().ip().hash(&mut hasher);
     hasher.finish()
 }
